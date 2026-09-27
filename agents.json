@@ -1,0 +1,23 @@
+{
+  "log_dir": "logs",
+  "defaults": {
+    "model": "gpt-5-mini",
+    "memory": false,
+    "system_prompt": null,
+    "tools": []
+  },
+  "types": {
+    "assistant": {
+      "system_prompt": "prompts/assistant.md",
+      "memory": true
+    },
+    "reviewer": {
+      "system_prompt": "prompts/reviewer.md"
+    },
+    "explorer": {
+      "system_prompt": "prompts/explorer.md",
+      "memory": true,
+      "tools": ["view", "grep", "glob"]
+    }
+  }
+}
