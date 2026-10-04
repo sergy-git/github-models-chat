@@ -1,10 +1,12 @@
 {
   "log_dir": "logs",
   "defaults": {
-    "model": "gpt-5-mini",
+    "model": "gpt-5.6-luna",
     "memory": false,
     "system_prompt": null,
-    "tools": []
+    "tools": [],
+    "reasoning_effort": "high",
+    "context_tier": "long_context"
   },
   "types": {
     "assistant": {
@@ -17,7 +19,11 @@
     "explorer": {
       "system_prompt": "prompts/explorer.md",
       "memory": true,
-      "tools": ["view", "grep", "glob"]
+      "tools": [
+        "view",
+        "grep",
+        "glob"
+      ]
     }
   }
 }

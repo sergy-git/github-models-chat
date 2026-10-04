@@ -269,12 +269,17 @@ class Agent:
                 skip_custom_instructions=True,
                 enable_skills=False,
                 infinite_sessions={"enabled": t.memory},
+                reasoning_effort=t.reasoning_effort,
+                context_tier=t.context_tier,
             )
         except Exception as exc:
             raise self._fail(InvokeError, f"session open failed: {exc}") from exc
         self._session = session
         self._session_nano_aiu = 0.0
-        self.log.info("session opened  id=%s model=%s memory=%s tools=%s", session.session_id, t.model, t.memory, ",".join(t.tools) or "none")
+        self.log.info(
+            "session opened  id=%s model=%s memory=%s tools=%s reasoning_effort=%s context_tier=%s",
+            session.session_id, t.model, t.memory, ",".join(t.tools) or "none", t.reasoning_effort or "-", t.context_tier or "-",
+        )
         return session
 
     async def _aclose_session(self, reason: str) -> None:

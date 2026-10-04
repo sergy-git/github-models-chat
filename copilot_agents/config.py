@@ -4,13 +4,18 @@ Schema::
 
     {
       "log_dir": "logs",
-      "defaults": {"model": "...", "memory": false, "system_prompt": null|"path.md", "tools": []},
-      "types": {"<type>": {<any subset of the four keys, at least one>}}
+      "defaults": {"model": "...", "memory": false, "system_prompt": null|"path.md", "tools": [],
+                   "reasoning_effort": null|"...", "context_tier": null|"default"|"long_context"},
+      "types": {"<type>": {<any subset of the keys above, at least one>}}
     }
+
+``reasoning_effort`` and ``context_tier`` are optional everywhere (including
+``defaults``); when omitted the model's own default behaviour applies.
 
 Every problem raises :class:`ConfigError` (after logging). Nothing is
 silently defaulted. Loading also starts the shared runtime so that model
-names can be checked against the live model list.
+names, reasoning efforts and context tiers can be checked against the live
+model list.
 """
 
 from __future__ import annotations
@@ -27,6 +32,8 @@ from .runtime import Runtime
 _log = get_logger()
 
 TYPE_KEYS = ("model", "memory", "system_prompt", "tools")
+OPTIONAL_TYPE_KEYS = ("reasoning_effort", "context_tier")
+ALL_TYPE_KEYS = TYPE_KEYS + OPTIONAL_TYPE_KEYS
 TOP_KEYS = ("log_dir", "defaults", "types")
 DEFAULT_TYPE = "default"
 
@@ -39,11 +46,18 @@ class AgentType:
     system_prompt_path: Path | None
     system_prompt: str
     tools: tuple[str, ...]
+    reasoning_effort: str | None = None
+    context_tier: str | None = None
 
     def describe(self) -> str:
         sp = str(self.system_prompt_path) if self.system_prompt_path else "-"
         tools = ",".join(self.tools) if self.tools else "none"
-        return f"model={self.model} memory={self.memory} system_prompt={sp} tools={tools}"
+        extra = ""
+        if self.reasoning_effort is not None:
+            extra += f" reasoning_effort={self.reasoning_effort}"
+        if self.context_tier is not None:
+            extra += f" context_tier={self.context_tier}"
+        return f"model={self.model} memory={self.memory} system_prompt={sp} tools={tools}{extra}"
 
 
 @dataclass(frozen=True)
@@ -82,7 +96,7 @@ def _parse_type_fields(raw: dict, where: str, base_dir: Path) -> dict[str, Any]:
     """Validate the subset of type keys present in ``raw`` and return typed values."""
     if not isinstance(raw, dict):
         raise _fail(f"{where}: must be an object")
-    _check_keys(raw, TYPE_KEYS, where)
+    _check_keys(raw, ALL_TYPE_KEYS, where)
     out: dict[str, Any] = {}
     if "model" in raw:
         if not isinstance(raw["model"], str) or not raw["model"].strip():
@@ -114,6 +128,16 @@ def _parse_type_fields(raw: dict, where: str, base_dir: Path) -> dict[str, Any]:
         if not isinstance(t, list) or not all(isinstance(x, str) and x.strip() for x in t):
             raise _fail(f"{where}.tools: must be a list of tool-name strings (or [] / \"none\")")
         out["tools"] = tuple(dict.fromkeys(x.strip() for x in t))
+    if "reasoning_effort" in raw:
+        re_ = raw["reasoning_effort"]
+        if re_ is not None and not (isinstance(re_, str) and re_.strip()):
+            raise _fail(f"{where}.reasoning_effort: must be null or a non-empty string")
+        out["reasoning_effort"] = re_.strip() if isinstance(re_, str) else None
+    if "context_tier" in raw:
+        ct = raw["context_tier"]
+        if ct not in (None, "default", "long_context"):
+            raise _fail(f"{where}.context_tier: must be null, 'default' or 'long_context'")
+        out["context_tier"] = None if ct == "default" else ct
     return out
 
 
@@ -172,8 +196,18 @@ def load_agent_config(path: str | Path = "agents.json", *, console: bool = True)
     runtime.start()
     known = runtime.models
     for t in (defaults, *types.values()):
+        where = "defaults" if t.name == DEFAULT_TYPE else "types." + t.name
         if t.model not in known:
-            raise _fail(f"{'defaults' if t.name == DEFAULT_TYPE else 'types.' + t.name}.model: {t.model!r} is not available; choose one of: {', '.join(known)}")
+            raise _fail(f"{where}.model: {t.model!r} is not available; choose one of: {', '.join(known)}")
+        minfo = known[t.model]
+        if t.reasoning_effort is not None:
+            efforts = minfo.supported_reasoning_efforts or []
+            if t.reasoning_effort not in efforts:
+                raise _fail(f"{where}.reasoning_effort: {t.reasoning_effort!r} not supported by model {t.model!r}; choose one of: {efforts or 'none'}")
+        if t.context_tier is not None:
+            tp = minfo.billing.token_prices if minfo.billing else None
+            if not (tp and tp.long_context is not None):
+                raise _fail(f"{where}.context_tier: {t.context_tier!r} not supported by model {t.model!r}")
 
     cfg = AgentsConfig(path=path, log_dir=log_dir, log_file=log_file, defaults=defaults, types=types)
     _log.info("config %s OK  types=%d  [%s]", path.name, len(cfg.type_names), ", ".join(cfg.type_names))
